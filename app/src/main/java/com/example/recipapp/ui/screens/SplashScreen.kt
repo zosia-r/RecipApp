@@ -1,6 +1,8 @@
 package com.example.recipapp.ui.screens
 
-import android.widget.VideoView
+import android.view.ViewGroup.LayoutParams.MATCH_PARENT
+import android.widget.FrameLayout
+import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -17,48 +19,65 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.PlayerView
 import com.example.recipapp.R
-import kotlinx.coroutines.delay
-import androidx.core.net.toUri
 
+@OptIn(UnstableApi::class)
 @Composable
 fun SplashScreen(onTimeout: () -> Unit) {
     val context = LocalContext.current
-    // Pobranie adresu URI pliku wideo
-    val videoUri = "android.resource://${context.packageName}/${R.raw.intro_video}".toUri()
-    // coil + videoframe / media3exoplayer, fullscreen:
-    // zmienić wygląd plusa - floating albo na srodku troche inaczej wygladajacy
-    // Stan kontrolujący animację napisu
     var isVisible by remember { mutableStateOf(false) }
 
-    // Uruchomienie animacji zaraz po załadowaniu ekranu
+    val exoPlayer = remember {
+        ExoPlayer.Builder(context).build().apply {
+            val uri = "android.resource://${context.packageName}/${R.raw.intro_video}"
+            setMediaItem(MediaItem.fromUri(uri))
+            repeatMode = Player.REPEAT_MODE_OFF
+            playWhenReady = true
+            prepare()
+        }
+    }
+
+    // Animacja napisu
     LaunchedEffect(Unit) {
         isVisible = true
     }
 
-    // Kompozycja ekranu startowego
+    // Przejście po zakończeniu filmu
+    LaunchedEffect(exoPlayer) {
+        exoPlayer.addListener(object : Player.Listener {
+            override fun onPlaybackStateChanged(state: Int) {
+                if (state == Player.STATE_ENDED) onTimeout()
+            }
+        })
+    }
+
+    // Zwolnienie zasobów przy wyjściu z ekranu
+    DisposableEffect(Unit) {
+        onDispose { exoPlayer.release() }
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
 
-        // 1. warstwa filmikowa - najniżej
+        // 1. warstwa filmowa – pełny ekran bez pasków
         AndroidView(
-            factory = { ctx ->
-                VideoView(ctx).apply {
-                    setVideoURI(videoUri)
-                    // Wymuszenie zajęcia całego kontenera (MATCH_PARENT)
-                    layoutParams = android.view.ViewGroup.LayoutParams(
-                        android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                        android.view.ViewGroup.LayoutParams.MATCH_PARENT
-                    )
-                    setOnPreparedListener { mediaPlayer ->
-                        mediaPlayer.isLooping = true
-                        mediaPlayer.start()
-                    }
+            modifier = Modifier.fillMaxSize(),
+            factory = {
+                PlayerView(context).apply {
+                    player = exoPlayer
+                    useController = false
+                    resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM // wypełnia cały ekran
+                    layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT)
                 }
-            },
-            modifier = Modifier.fillMaxSize()
+            }
         )
 
-        // 2. warstwa tekstowa (animowany napis)
+        // 2. warstwa tekstowa
         Column(
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.Center,
@@ -76,11 +95,5 @@ fun SplashScreen(onTimeout: () -> Unit) {
                 )
             }
         }
-    }
-
-    // 3. przełącz się na ekran główny
-    LaunchedEffect(Unit) {
-        delay(5000)
-        onTimeout()
     }
 }
